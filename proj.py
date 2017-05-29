@@ -3,9 +3,60 @@
 import pandas as pd 
 import numpy
 import pickle
+import os.path
+from collections import Counter
 
-"""
-def matrix_factorization(R, P, Q, K, steps=5000, alpha=0.0002, beta=0.02):
+class RecSys:
+
+  def __init__(self):
+    self.training_error = []
+    self.testing_error = []
+
+  def user_base():
+    pass
+  
+  def matrix_factorization(self, rating, numFeature, steps=10000, alpha=0.0006, beta=0.02):
+    numMovie = len(rating)
+    numUser = len(rating[0])
+
+    movie = numpy.random.rand(numMovie,numFeature)
+    user = numpy.random.rand(numUser,numFeature)
+
+    user = user.T
+    preve = 0
+    for step in xrange(steps):
+      for mid in xrange(len(rating)): # update
+        for uid in xrange(len(rating[mid])):
+          if rating[mid][uid] > 0:
+            eij = rating[mid][uid] - numpy.dot(movie[mid,:],user[:,uid])
+            for f in xrange(numFeature):
+              movie[mid][f] = movie[mid][f] + alpha * (2 * eij * user[f][uid] - beta * movie[mid][f])
+              user[f][uid] = user[f][uid] + alpha * (2 * eij * movie[mid][f] - beta * user[f][uid])
+      e = 0
+      for i in xrange(len(rating)): # error
+        for j in xrange(len(rating[i])):
+          if rating[i][j] > 0:
+            e = e + pow(rating[i][j] - numpy.dot(movie[i,:],user[:,j]), 2)
+            for f in xrange(numFeature): # normalisation
+              e = e + (beta/2) * (pow(movie[i][f],2) + pow(user[f][j],2))
+    
+      # debug
+      print "%s: e = %.10f, preve = %.10f, diff = %.10f\n" % (step, e, preve, (preve - e))
+      if abs(e - preve) < 0.0001:
+        break
+      preve = e
+
+    with open("MovieMatrix_"+numFeature, 'wb') as f:
+      pickle.dump(movie, f)
+
+    with open("UserMatrix_"+numFeature, 'wb') as f:
+      pickle.dump(user.T, f)
+
+    return movie, user.T
+
+
+"""  
+  def matrix_factorization(self, R, P, Q, K, steps=5000, alpha=0.0002, beta=0.02):
     Q = Q.T
     for step in xrange(steps):
         for i in xrange(len(R)):
@@ -29,38 +80,6 @@ def matrix_factorization(R, P, Q, K, steps=5000, alpha=0.0002, beta=0.02):
     return P, Q.T
 """
 
-def matrix_factorization(rating, movie, user, numFeature, steps=5000, alpha=0.0002, beta=0.02):
-  user = user.T
-  preve = 0
-  for step in xrange(steps):
-    # update
-    for mid in xrange(len(rating)):
-      for uid in xrange(len(rating[mid])):
-        if rating[mid][uid] > 0:
-          eij = rating[mid][uid] - numpy.dot(movie[mid,:],user[:,uid])
-          for f in xrange(numFeature):
-            movie[mid][f] = movie[mid][f] + alpha * (2 * eij * user[f][uid] + beta * movie[mid][f])
-            user[f][uid] = user[f][uid] + alpha * (2 * eij * movie[mid][f] + beta * user[f][uid])
-    
-    # error
-    e = 0
-    for i in xrange(len(rating)):
-      for j in xrange(len(rating[i])):
-        if rating[i][j] > 0:
-          e = e + pow(rating[i][j] - numpy.dot(movie[i,:],user[:,j]), 2)
-          # normalisation
-          for f in xrange(numFeature):
-            e = e + (beta/2) * (pow(movie[i][f],2) + pow(user[f][j],2))
-  
-    # debug
-    print "e = %.15f, preve = %.15f, diff = %.15f\n" % (e, preve, abs(e - preve))
-    if abs(e - preve) < 0.00000000001:
-      break
-    preve = e
-    print step
-
-  return movie, user.T
-
 
 if __name__ == '__main__':
   # links = pd.read_csv("data/links.csv")
@@ -75,24 +94,16 @@ if __name__ == '__main__':
   m = m.pivot(index='movieId', columns='userId', values='rating').fillna(0.00)
   
   RatingMatrix = numpy.array(m)
-  numMovie = len(RatingMatrix)
-  numUser = len(RatingMatrix[0])
-  numGenre = 2#len(genres)
 
-  MovieMatrix = numpy.random.rand(numMovie,numGenre)
-  UserMatrix = numpy.random.rand(numUser,numGenre)
+  numFeature = 2 # len(genres)
 
-  MovieMatrix, UserMatrix = matrix_factorization(RatingMatrix, MovieMatrix, UserMatrix, numGenre)
+  # with open("MovieMatrix", 'rb') as f:
+  #   MovieMatrix = pickle.load(f)
+  # with open("UserMatrix", 'rb') as f:
+  #   UserMatrix = pickle.load(f)
+
+  recsys = RecSys()
+
+  # MovieMatrix, UserMatrix = recsys.matrix_factorization(RatingMatrix, numFeature)
   # nR = numpy.dot(MovieMatrix, UserMatrix.T)
-
-  with open("MovieMatrix", 'wb') as f:
-   pickle.dump(MovieMatrix, f)
-
-  with open("UserMatrix", 'wb') as f:
-   pickle.dump(UserMatrix, f)
-
-   # with open("MovieMatrix", 'rb') as f:
-   #  pickle.load(MovieMatrix, f)
-
-  # print nR
 
