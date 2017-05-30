@@ -1,100 +1,96 @@
 #!/usr/bin/python2.7
 
 import pandas as pd
-import numpy
+import numpy as np
+import scipy
 import pickle
-import os.path
-from collections import Counter
-
-class RecSys:
-
-  def __init__(self):
-    self.training_error = []
-    self.testing_error = []
-
-  def user_base():
-    pass
-
-  def matrix_factorization(self, R, K, steps=10000, alpha=0.0002, beta=0.02):
-    numMovie = len(R)
-    numUser = len(R[0])
-    P = numpy.random.rand(numMovie,K)
-    Q = numpy.random.rand(numUser,K)
-
-    Q = Q.T
-    indexs = numpy.array(R.nonzero()).T
-    for step in xrange(steps):
-        for i,j in indexs:
-          eij = R[i][j] - numpy.dot(P[i,:],Q[:,j])
-          P[i,:] += alpha * (2 * eij * Q[:,j] - beta * P[i,:])
-          Q[:,j] += alpha * (2 * eij * P[i,:] - beta * Q[:,j])
-        e = 0
-        for i,j in indexs:
-          e = e + pow(R[i][j] - numpy.dot(P[i,:],Q[:,j]), 2)
-        e += R.sum() + Q.sum()
-        print "new", step, e
-        if e < 0.001:
-            break
-    return P, Q.T
+from scipy.sparse.linalg import svds
+from sklearn.utils.extmath import randomized_svd
 
 
-  # def matrix_factorization(self, R, K, steps=5000, alpha=0.0002, beta=0.02):
-  #   numMovie = len(R)
-  #   numUser = len(R[0])
+def matrix_factorization(R, testingIndex, K, steps=10000, alpha=0.0002, beta=0.02):
+  numUser = len(R)
+  numMovie = len(R[0])
+  Q = np.random.rand(numMovie, K)
+  P = np.random.rand(numUser, K)
 
-  #   P = numpy.random.rand(numMovie,K)
-  #   Q = numpy.random.rand(numUser,K)
+  Q = Q.T
+  indices = np.array(R.nonzero()).T
+  trainError = []
+  testingError = []
+  for step in range(steps):
+    for i, j in indices:
+      eij = R[i][j] - np.dot(P[i, :], Q[:, j])
+      P[i, :] += alpha * (2 * eij * Q[:, j] - beta * P[i, :])
+      Q[:, j] += alpha * (2 * eij * P[i, :] - beta * Q[:, j])
+    e = 0
+    for i, j in indices:
+      e = e + pow(R[i][j] - np.dot(P[i, :], Q[:, j]), 2)
+    trainError.append(e)  # append the training error
+    e += R.sum() + Q.sum()  # normalisation
+    print(step, e)
+    if e < 0.001:
+      break
 
-  #   Q = Q.T
-  #   for step in xrange(steps):
-  #       for i in xrange(len(R)):
-  #           for j in xrange(len(R[i])):
-  #               if R[i][j] > 0:
-  #                   eij = R[i][j] - numpy.dot(P[i,:],Q[:,j])
-  #                   for k in xrange(K):
-  #                       P[i][k] = P[i][k] + alpha * (2 * eij * Q[k][j] - beta * P[i][k])
-  #                       Q[k][j] = Q[k][j] + alpha * (2 * eij * P[i][k] - beta * Q[k][j])
-  #       # eR = numpy.dot(P,Q)
-  #       e = 0
-  #       for i in xrange(len(R)):
-  #           for j in xrange(len(R[i])):
-  #               if R[i][j] > 0:
-  #                   e = e + pow(R[i][j] - numpy.dot(P[i,:],Q[:,j]), 2)
-  #                   for k in xrange(K):
-  #                       e = e + (beta/2) * ( pow(P[i][k],2) + pow(Q[k][j],2) )
-  #       print step, e
-  #       if e < 0.001:
-  #           break
-  #   return P, Q.T
+
+
+
+  with open("testingError_" + K, 'wb') as f:
+    pickle.dump(testingError, f)
+  with open("trainError_" + K, 'wb') as f:
+    pickle.dump(trainError, f)
+  with open("MovieMatrix_" + K, 'wb') as f:
+    pickle.dump(P, f)
+  with open("UserMatrix_" + K, 'wb') as f:
+    pickle.dump(Q, f)
+  return Q.T, P
+
+
+def rmse (indexs, train, truth):
+  for index in indexs:
+    row, col, real = index[0], index[1], index[2]
+    print(train[row].astype(int))
+    print(truth[row].astype(int))
+    print( train[row][col], truth[row][col] )
+    input()
+
+
+# mask out the first none zero value
+# @return: (rows, cols, reals), [trainingMatrix]
+def generate_test_train(ratingMatrix):
+  ratingCopy = ratingMatrix.copy()
+  rows, cols, reals = [],[],[]
+  numUser = len(ratingMatrix)
+  for row in range(0, int(numUser * 0.2)):  # split to test : 0->numUser/5, train: numUser/5->..
+    nonezeros = ratingCopy[row].nonzero()
+    if len(nonezeros[0]) > 1:
+      col = nonezeros[0][0]
+      rows.append(row)
+      cols.append(col)
+      reals.append(ratingCopy[row][col])
+      ratingCopy[row][col] = 0
+  return (np.array(rows), np.array(cols), np.array(reals)), ratingCopy
+
+
+def main():
+  movies = pd.read_csv("data/movies.csv")
+  genres = pd.unique(movies['genres'])
+  ratings = pd.read_csv("data/ratings.csv")
+  ratings.rating = ratings.rating.astype(float)
+
+  m1 = pd.merge(ratings, movies, on='movieId')
+  m = m1[['userId', 'movieId', 'rating']]
+  m = m.pivot(index='userId', columns='movieId', values='rating').fillna(0.00)
+
+  ratingMatrix = np.array(m)
+  numFeature = 600  # len(genres)
+
+  testingIndex, trainingMatrix = generate_test_train(ratingMatrix)
+  print(testingIndex)
+  # matrix_factorization(trainingMatrix, testingIndex, numFeature)
+  # print( np.mean(result, axis=1) )
+  # rmse(testingIndex, result, ratingCopy)
 
 
 if __name__ == '__main__':
-  # links = pd.read_csv("data/links.csv")
-  # tags = pd.read_csv("data/tags.csv")
-  movies = pd.read_csv( "data/movies.csv" )
-  genres = pd.unique( movies['genres'] )
-  ratings = pd.read_csv( "data/ratings.csv" )
-  ratings.rating = ratings.rating.astype(float)
-
-  m1 = pd.merge( ratings, movies, on='movieId' )
-  m = m1[ ['userId', 'movieId', 'rating', 'title'] ]
-  m = m.pivot(index='movieId', columns='userId', values='rating').fillna(0.00)
-
-  RatingMatrix = numpy.array(m)
-  # numpy.random.shuffle(RatingMatrix)
-
-
-  numFeature = 25 # len(genres)
-
-  with open("MovieMatrix_10", 'rb') as f:
-    MovieMatrix = pickle.load(f)
-  with open("UserMatrix_10", 'rb') as f:
-    UserMatrix = pickle.load(f)
-
-  recsys = RecSys()
-
-  MovieMatrix, UserMatrix = recsys.matrix_factorization(RatingMatrix, numFeature)
-  # nR = numpy.dot(MovieMatrix, UserMatrix.T)
-
-
-
+  main()
